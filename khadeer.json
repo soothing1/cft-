@@ -1,0 +1,178 @@
+{
+	"AWSTemplateFormatVersion" : "2010-09-09",
+	"Description" :  "VPC Public and Private setup",
+
+	"Parameters" : {
+		"KeyName" : {
+			"Description" : "The EC2 Key Pair to allow SSH access to the instance",
+			"Type": "AWS::EC2::KeyPair::KeyName"
+		},
+ "InstanceType" : {
+	"Description" : "WebServer EC2 instance type",
+	"Type" : "String",
+	"Default" : "t2.micro",
+	"AllowedValues" : [ "t1.micro", "t2.nano", "t2.micro"],
+ "ConstraintDescription" : "must be a valid EC2 instance type."
+    }
+	},
+
+	"Mappings" : {
+		"RegionMapNAT" : {
+			"us-east-1" : { "AMI" : "ami-03291866" }
+		},
+		"RegionMap" : {
+			"us-west-2" : { "AMI" : "ami-28e07e50" }
+	    }
+	},
+
+	"Resources" : {
+		"myVPC" : {
+			"Type" : "AWS::EC2::VPC",
+			"Properties" : {
+				"CidrBlock" : "10.0.0.0/16"
+			}
+		},
+		"myPublicSubnet" : 	{
+			"Type" : "AWS::EC2::Subnet",
+			"Properties" : {
+				"VpcId" : { "Ref" : "myVPC" },
+				"CidrBlock" : "10.0.0.0/24",
+				"AvailabilityZone" : { "Fn::Join" : [ "", [ { "Ref" : "AWS::Region" } ,"a" ]]}
+			}
+		},
+		"myPrivateSubnet" : {
+			"Type" : "AWS::EC2::Subnet",
+			"Properties" : {
+				"VpcId" : { "Ref" : "myVPC" },
+				"CidrBlock" : "10.0.1.0/24",
+				"AvailabilityZone" : { "Fn::Join" : [ "", [ { "Ref" : "AWS::Region" } ,"b" ]]}
+			}
+		},
+		"myInternetGateway" : {
+			"Type" : "AWS::EC2::InternetGateway"
+		},
+		"myVPCGatewayAttachment" : {
+			"Type" : "AWS::EC2::VPCGatewayAttachment",
+			"Properties" : {
+				"VpcId" : {"Ref" : "myVPC"},
+				"InternetGatewayId" : {"Ref" : "myInternetGateway"}
+			}
+		},
+		"myPublicRouteTable" : {
+			"Type" : "AWS::EC2::RouteTable",
+			"Properties" : {
+				"VpcId" : {"Ref" : "myVPC"}
+			}
+		},
+		"myPublicRoute" : {
+			"Type" : "AWS::EC2::Route",
+			"Properties" : {
+				"RouteTableId" : { "Ref" : "myPublicRouteTable" },
+				"DestinationCidrBlock" : "0.0.0.0/0",
+				"GatewayId" : { "Ref" : "myInternetGateway" }
+			}
+		},
+		"myPublicSubnetRouteTableAssociation" : {
+			"Type" : "AWS::EC2::SubnetRouteTableAssociation",
+			"Properties" : {
+				"SubnetId" : {"Ref" : "myPublicSubnet"},
+				"RouteTableId" : {"Ref" : "myPublicRouteTable"}
+			}
+		},
+		"myPrivateRouteTable" : {
+			"Type" : "AWS::EC2::RouteTable",
+			"Properties" : {
+				"VpcId" : {"Ref" : "myVPC"}
+			}
+		},
+		"myPrivateRoute" : {
+			"Type" : "AWS::EC2::Route",
+			"Properties" : {
+				"RouteTableId" : { "Ref" : "myPrivateRouteTable" },
+				"DestinationCidrBlock" : "0.0.0.0/0",
+				"GatewayId" : { "Ref" : "myInternetGateway" }
+			}
+		},
+		"myPrivateSubnetRouteTableAssociation" : {
+			"Type" : "AWS::EC2::SubnetRouteTableAssociation",
+			"Properties" : {
+				"SubnetId" : {"Ref" : "myPrivateSubnet"},
+				"RouteTableId" : {"Ref" : "myPrivateRouteTable"}
+			}
+		},
+
+		"EC2" : {
+			"Type" : "AWS::EC2::Instance",
+			"Properties" : {
+				"ImageId" : { "Fn::FindInMap" : [ "RegionMap", { "Ref" : "AWS::Region" }, "AMI" ]},
+				"KeyName" : { "Ref" : "KeyName"},
+				"SubnetId" : {"Ref" : "myPrivateSubnet"},
+				"PrivateIpAddress" : "10.0.1.4",
+				"SecurityGroupIds" : [ {"Ref" : "SG"} ],
+				"SourceDestCheck" : false,
+				"InstanceType" : { "Ref" : "InstanceType" },
+				"UserData" : ""
+			}
+		},
+		"NATEC2" : {
+			"Type" : "AWS::EC2::Instance",
+			"Properties" : {
+				"ImageId" : { "Fn::FindInMap" : [ "RegionMapNAT", { "Ref" : "AWS::Region" }, "AMI" ]},
+				"KeyName" : { "Ref" : "KeyName"},
+				"SubnetId" : {"Ref" : "myPublicSubnet"},
+				"PrivateIpAddress" : "10.0.0.254",
+				"SourceDestCheck" : false,
+				"SecurityGroupIds" : [ {"Ref" : "SG"} ],
+				"InstanceType" : { "Ref" : "InstanceType" },
+				"UserData" : {
+    "Fn::Base64" : {
+        "Fn::Join" : [ " ", [
+            "#!/bin/bash\n",
+            "sudo yum install httpd\n",
+			"sudo systemctl enable httpd\n",
+			"sudo systemctl start httpd\n",
+			"sudo setenforce 0\n"
+			] ]
+    }
+}
+			}
+		},
+		"SG" : {
+			"Type" : "AWS::EC2::SecurityGroup",
+			"Properties" : {
+				"GroupDescription" : "Enable ping and ssh access via port 22 and ALL from VPC CIDR",
+				"VpcId" : {"Ref" : "myVPC"},
+				"SecurityGroupIngress" : [
+					{"IpProtocol" : "icmp", "FromPort" : "8", "ToPort" : "-1", "CidrIp" : "0.0.0.0/0"},
+					{"IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "0.0.0.0/0"},
+					{"IpProtocol" : "icmp", "FromPort" : "-1", "ToPort" : "-1", "CidrIp" : "0.0.0.0/0" },
+					{"IpProtocol" : "udp", "FromPort" : "1", "ToPort" : "65535", "CidrIp" : "0.0.0.0/0" },
+					{"IpProtocol" : "tcp", "FromPort" : "1", "ToPort" : "65535", "CidrIp" : "0.0.0.0/0" }
+				]
+			}      
+		}
+   	},
+
+	"Outputs" : {
+		"SSHcommand" : {
+			"Value" : { "Fn::Join" : [ "", [ "ssh-agent bash <enter> ssh-add /path/to/keypair.pem <enter> ssh ec2-user@", { "Ref" : "NATEIP" }, " <enter> ssh ", { "Fn::GetAtt" : [ "EC2", "PrivateIp" ]} ] ] },
+			"Description" : "commands to login to the private instance via NAT instance"
+		},
+		"NATInstanceId" : {
+			"Value" : { "Ref" : "NATEC2" },
+			"Description" : "Instance Id of NAT instance"
+		},
+		"NATInstanceIP" : {
+			"Value" : { "Ref" : "NATEIP" },
+			"Description" : "ElasticIP of NAT instance"
+		},
+		"EC2InstanceId" : {
+			"Value" : { "Ref" : "EC2" },
+			"Description" : "Instance Id of private instance"
+		},
+		"InstnacePublicDNS" : {
+			"Value" : { "Fn::GetAtt" : [ "EC2", "PrivateIp" ]},
+			"Description" : "Private IP of the instance"
+		}
+	}
+}
