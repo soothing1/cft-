@@ -358,7 +358,8 @@
 			"yum install -y httpd\n",
 			"systemctl enable httpd\n",
 			"systemctl start httpd\n",
-		        "echo hello khadeer >> /var/www/html/hello.text"
+		        "echo hello khadeer >> /var/www/html/hello.text",
+		"setenforce 0"
 			] ]
     }
 }
