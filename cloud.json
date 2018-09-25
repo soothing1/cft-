@@ -357,8 +357,8 @@
    "UserData" :  {     "Fn::Base64" : {    "Fn::Join" : [ " ",  [
             "#!/bin/bash -xe\n",
 		"sudo yum install net-tools",
-		"sudo chmod 777 /home/maintuser",
-		"sudo cd /home/maintuser/",
+		"sudo chmod 777 /home/ec2-user",
+		"sudo cd /home/ec2-user/",
 		"sudo yum install wget -y",
 		"sudo wget https://s3-us-west-1.amazonaws.com/centos-jenkins/pubkey.ssh"
 		            	] ]
